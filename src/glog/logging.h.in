@@ -360,6 +360,7 @@ DECLARE_int32(minloglevel);
 // If specified, logfiles are written into this directory instead of the
 // default logging directory.
 DECLARE_string(log_dir);
+DECLARE_string(log_file_name);
 
 // Set the log file mode.
 DECLARE_int32(logfile_mode);

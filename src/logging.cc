@@ -165,6 +165,7 @@ GLOG_DEFINE_int32(logfile_mode, 0664, "Log file mode/permissions.");
 GLOG_DEFINE_string(log_dir, DefaultLogDir(),
                    "If specified, logfiles are written into this directory instead "
                    "of the default logging directory.");
+GLOG_DEFINE_string(log_file_name, "", "execable file name or log_file_name");
 GLOG_DEFINE_string(log_link, "", "Put additional links to the log "
                    "files in this directory");
 
@@ -903,11 +904,29 @@ void LogFileObject::FlushUnlocked(){
 }
 
 bool LogFileObject::CreateLogfile(const string& time_pid_string) {
+  #if 1
+  string log_file_name=FLAGS_log_file_name;
+  if(log_file_name.empty()){
+    log_file_name=std::string("logs");
+  }
+  string string_filename = base_filename_+log_file_name;//FLAGS_log_dir
+  #else
   string string_filename = base_filename_+filename_extension_+
                            time_pid_string;
+  #endif
+  int fd = -1;
   const char* filename = string_filename.c_str();
-  int fd = open(filename, O_WRONLY | O_CREAT | O_EXCL, FLAGS_logfile_mode);
-  if (fd == -1) return false;
+  if(0==access(filename,F_OK)){
+    fd = open(filename, O_WRONLY | O_EXCL);
+    if (fd == -1) return false;
+
+    struct stat log_stat;
+    lstat(filename,&log_stat);
+    file_length_+=log_stat.st_size;
+  } else {
+    fd = open(filename, O_WRONLY | O_CREAT | O_EXCL, FLAGS_logfile_mode);
+    if (fd == -1) return false;
+  }
 #ifdef HAVE_FCNTL
   // Mark the file close-on-exec. We don't really care if this fails
   fcntl(fd, F_SETFD, FD_CLOEXEC);
@@ -972,6 +991,23 @@ void LogFileObject::Write(bool force_flush,
     return;
   }
 
+#if 1
+  if (static_cast<int>(file_length_ >> 20) >= MaxLogSize() /*||
+      PidHasChanged()*/) {
+    if (file_ != NULL) fclose(file_);
+    file_ = NULL;
+    file_length_ = bytes_since_flush_ = dropped_mem_length_ = 0;
+    rollover_attempt_ = kRolloverAttemptFrequency-1;
+
+    string log_file_name=FLAGS_log_file_name;
+    if(log_file_name.empty()){
+      log_file_name=std::string("logs");
+    }
+    string string_filename_from = base_filename_+log_file_name;
+    string string_filename_to = string_filename_from+"_backup";
+    rename(string_filename_from.data(),string_filename_to.data());
+  }
+#else
   if (static_cast<int>(file_length_ >> 20) >= MaxLogSize() ||
       PidHasChanged()) {
     if (file_ != NULL) fclose(file_);
@@ -979,6 +1015,7 @@ void LogFileObject::Write(bool force_flush,
     file_length_ = bytes_since_flush_ = dropped_mem_length_ = 0;
     rollover_attempt_ = kRolloverAttemptFrequency-1;
   }
+#endif
 
   // If there's no destination file, make one before outputting
   if (file_ == NULL) {
@@ -1048,7 +1085,7 @@ void LogFileObject::Write(bool force_flush,
       for (vector<string>::const_iterator dir = log_dirs.begin();
            dir != log_dirs.end();
            ++dir) {
-        base_filename_ = *dir + "/" + stripped_filename;
+        base_filename_ = *dir + "/" /*+ stripped_filename*/;
         if ( CreateLogfile(time_pid_string) ) {
           success = true;
           break;
